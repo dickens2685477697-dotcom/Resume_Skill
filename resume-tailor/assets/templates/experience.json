@@ -1,0 +1,31 @@
+{
+  "experience_id": "",
+  "experience_name": "",
+  "experience_type": "",
+  "organization": "",
+  "role": "",
+  "time_range": "",
+  "background": [],
+  "business_goal": [],
+  "user_problem": [],
+  "task": [],
+  "actions": [],
+  "deliverables": [],
+  "results": [],
+  "metrics": [],
+  "decisions": [],
+  "tradeoffs": [],
+  "collaboration": [],
+  "skills": [],
+  "tools": [],
+  "source_refs": [],
+  "field_evidence": {},
+  "star_completeness": {
+    "situation": "missing",
+    "task": "missing",
+    "action": "missing",
+    "result": "missing"
+  },
+  "status": "draft",
+  "updated_at": ""
+}
