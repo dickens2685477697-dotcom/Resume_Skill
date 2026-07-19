@@ -1,4 +1,4 @@
 interface:
   display_name: "定向简历证据管理"
   short_description: "基于真实经历证据完成岗位匹配、简历定制、事实审计与面试预测"
-  default_prompt: "Use $resume-tailor to tailor my resume to this job description using only traceable evidence."
+  default_prompt: "使用 $resume-tailor 自动导入并拆解我刚上传的个人材料，保存可追溯的个人资料、项目和实习/工作经历；不确定信息标为待确认，不要编造。"
