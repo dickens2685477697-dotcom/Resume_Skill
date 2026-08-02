@@ -1,0 +1,73 @@
+flowchart TD
+    START([开始]) --> RESUME_INPUT[/用户输入简历文本、简历文件或其他个人材料/]
+    RESUME_INPUT --> INTENT[阶段 0：识别用户意图和本次输入]
+    INTENT --> READONLY{明确要求<br/>只分析、不保存?}
+
+    READONLY -- 是 --> TEMP_PARSE[临时读取和解析输入]
+    TEMP_PARSE --> TEMP_REPORT[/输出分析与缺口；不写入 Workspace/]
+    TEMP_REPORT --> END([结束])
+
+    READONLY -- 否 --> MODE[设置 mode = ingest；计划执行阶段 1–4]
+    MODE --> MANIFEST[创建或更新 run-manifest.json]
+    MANIFEST --> WS_EXISTS{Workspace 已初始化?}
+    WS_EXISTS -- 否 --> INIT[[运行 init_workspace.py]]
+    INIT --> STRUCTURE_CHECK[[运行 validate_workspace.py]]
+    STRUCTURE_CHECK --> VALID{结构校验通过?}
+    VALID -- 否 --> INIT_ERROR[/记录结构错误和限制；status = partial/]
+    INIT_ERROR --> END
+    VALID -- 是 --> PRESERVE
+    WS_EXISTS -- 是 --> PRESERVE[保留原始输入；登记到 inbox/source catalog]
+
+    PRESERVE --> SOURCE_ID[分配稳定 source_id；记录文件名、类型、路径和版本关系]
+    SOURCE_ID --> EXTRACT[提取文本，并保留页码、标题或段落定位]
+    EXTRACT --> PARSED{解析是否成功?}
+    PARSED -- 否或部分成功 --> PARSE_FAIL[标记失败原因或 partial；不得把解析失败当作事实缺失]
+    PARSE_FAIL --> INGEST_REPORT
+    PARSED -- 是 --> DUPLICATE[检查重复版本、补充关系和矛盾表述]
+    DUPLICATE --> NORMALIZE[规范化候选人资料、教育、技能、奖项、偏好、经历和项目]
+    NORMALIZE --> RECORDS[(profile/ + experiences/ + projects/)]
+    RECORDS --> EVIDENCE[拆分事实字段；绑定 field_evidence 与 source_refs]
+    EVIDENCE --> CONFLICT{数字、时间、角色或结果冲突?}
+    CONFLICT -- 是 --> MARK_CONFLICT[保留所有来源并标为 conflicting；等待用户确认]
+    CONFLICT -- 否 --> STAR
+    MARK_CONFLICT --> STAR[检查背景、职责、行动、产出、结果和个人/团队边界]
+
+    STAR --> CLASSIFY{STAR 与证据完整性分类}
+    CLASSIFY -- complete --> COMPLETE_REC[记录可直接用于后续匹配]
+    CLASSIFY -- usable_with_gaps --> GAP_REC[保留可用行动和产出；后续降低措辞强度]
+    CLASSIFY -- insufficient --> INSUFFICIENT_REC[缺少本人行动或关键来源；不建议写入简历]
+
+    COMPLETE_REC --> INGEST_REPORT[生成 ingestion-report.md]
+    GAP_REC --> INGEST_REPORT
+    INSUFFICIENT_REC --> INGEST_REPORT
+    INGEST_REPORT --> COMPLETENESS[生成 completeness-report.md 与 pending-questions.json]
+    COMPLETENESS --> QUESTIONS{是否存在会显著影响真实性<br/>或项目选择的关键问题?}
+    QUESTIONS -- 是 --> ASK[/集中询问少量具体事实：责任、数据、决策、实际结果等/]
+    ASK --> USER_REPLY{用户是否补充或确认?}
+    USER_REPLY -- 是 --> UPDATE[追加 change-log；更新证据状态；重跑受影响步骤]
+    UPDATE --> STAR
+    USER_REPLY -- 没有/不记得/无法确认 --> MISSING_CONFIRMED[标为 missing_confirmed；停止重复询问]
+    MISSING_CONFIRMED --> DEFAULT_END
+    QUESTIONS -- 否 --> DEFAULT_END[/阶段 1–4 完成：输出导入报告、完整性结果与限制/]
+
+    DEFAULT_END --> DOWNSTREAM{用户是否同时要求岗位匹配<br/>或生成定向简历?}
+    DOWNSTREAM -- 否：默认行为 --> END
+    DOWNSTREAM -- 是 --> JD_EXISTS{已有目标 JD?}
+    JD_EXISTS -- 否 --> ASK_JD[/请求用户提供 JD；当前 ingest 结果保留/]
+    ASK_JD --> END
+    JD_EXISTS -- 是 --> MATCH[[转入阶段 7：证据匹配 → 规划 → 生成 → 审计]]
+    MATCH --> END
+
+    classDef terminator fill:#17324d,color:#fff,stroke:#17324d,stroke-width:2px;
+    classDef input fill:#e8f2ff,color:#102a43,stroke:#2f6fad,stroke-width:1.5px;
+    classDef process fill:#ffffff,color:#102a43,stroke:#486581,stroke-width:1.3px;
+    classDef decision fill:#fff4cf,color:#533f03,stroke:#b08900,stroke-width:1.5px;
+    classDef store fill:#e8f7ef,color:#123b2a,stroke:#2f855a,stroke-width:1.5px;
+    classDef warning fill:#fff0f0,color:#7a1f1f,stroke:#c24141,stroke-width:1.5px;
+
+    class START,END terminator;
+    class RESUME_INPUT,TEMP_REPORT,INIT_ERROR,ASK,DEFAULT_END,ASK_JD input;
+    class READONLY,WS_EXISTS,VALID,PARSED,CONFLICT,CLASSIFY,QUESTIONS,USER_REPLY,DOWNSTREAM,JD_EXISTS decision;
+    class RECORDS store;
+    class PARSE_FAIL,MARK_CONFLICT,GAP_REC,INSUFFICIENT_REC,MISSING_CONFIRMED warning;
+

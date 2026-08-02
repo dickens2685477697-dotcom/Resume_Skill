@@ -48,6 +48,7 @@ workspace/
     ├── workspace-manifest.json
     ├── run-manifest.json
     ├── change-log.jsonl
+    ├── staging/               # 尚未应用的生成 bundle；成功应用后清理
     └── templates/
 ```
 
@@ -300,3 +301,4 @@ workspace/
 3. 针对一个 JD 的措辞只保存在 `jobs/` 或 `outputs/`，不改变项目原始事实。
 4. 材料冲突时标记字段与来源，等待用户确认。
 5. 只重新运行受影响的完整性、匹配、规划、生成和审计阶段。
+6. 岗位分析和匹配不得用行级大补丁更新已有 JSON；按 `job-match-workflow.md` 在 `state/staging/` 生成 bundle，再由脚本校验、upsert 和原子替换。

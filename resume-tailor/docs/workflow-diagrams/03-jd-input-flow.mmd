@@ -1,0 +1,83 @@
+flowchart TD
+    START([开始]) --> JD_INPUT[/用户输入 JD 文本、文件或招聘链接/]
+    JD_INPUT --> INTENT[阶段 0：识别请求是分析、匹配、生成还是完整运行]
+    INTENT --> READONLY{明确要求<br/>只分析、不保存?}
+
+    READONLY -- 是 --> TEMP_JD[临时拆解岗位要求]
+    TEMP_JD --> TEMP_OUT[/输出 JD 分析；不创建或更新 Workspace/]
+    TEMP_OUT --> END([结束])
+
+    READONLY -- 否 --> MANIFEST[创建或更新 run-manifest.json；设置 target_job_id]
+    MANIFEST --> WS_OK{Workspace 已初始化且有效?}
+    WS_OK -- 否 --> INIT[[初始化并校验 Workspace]]
+    INIT --> INIT_OK{结构校验通过?}
+    INIT_OK -- 否 --> INIT_ERROR[/记录结构错误和限制；status = partial/]
+    INIT_ERROR --> END
+    INIT_OK -- 是 --> SOURCE_TYPE
+    WS_OK -- 是 --> SOURCE_TYPE{输入是否为链接<br/>或用户要求核验?}
+
+    SOURCE_TYPE -- 是 --> OFFICIAL[读取当前官方招聘页；记录访问日期和版本]
+    OFFICIAL --> VERSION_CONFLICT{网络版本与用户版本冲突?}
+    VERSION_CONFLICT -- 是 --> USER_WINS[保留两个版本；以用户指定版本为准]
+    VERSION_CONFLICT -- 否 --> SAVE_JD
+    USER_WINS --> SAVE_JD[创建 job_id；原样保存 jd-original.md 与 job-metadata.json]
+    SOURCE_TYPE -- 否 --> SAVE_JD
+
+    SAVE_JD --> ANALYZE[阶段 5–6：拆解岗位核心目标和成功定义]
+    ANALYZE --> REQUIREMENTS[提取职责、产出、硬性条件、加分项、能力、关键词、资历和责任级别]
+    REQUIREMENTS --> INFERRED[有依据的隐含要求单独标为 inferred_requirement]
+    INFERRED --> JD_STORE[(jd-analysis.json + jd-analysis-summary.md)]
+    JD_STORE --> ANALYSIS_ONLY{用户只要求 JD 分析?}
+    ANALYSIS_ONLY -- 是 --> ANALYSIS_OUT[/交付 JD 分析、硬约束和风险说明/]
+    ANALYSIS_OUT --> END
+
+    ANALYSIS_ONLY -- 否 --> PROFILE_OK{个人证据库是否存在<br/>且有可用项目/经历?}
+    PROFILE_OK -- 否 --> NEED_PROFILE[/输出缺失输入；请求简历或其他个人材料/]
+    NEED_PROFILE --> WAIT_PROFILE([等待个人材料])
+
+    PROFILE_OK -- 是 --> MATCH[阶段 7：逐项检索行动、决策、交付物、结果和来源]
+    MATCH --> SCORE[按相关性 35%、证据 25%、主导 15%、结果 10%、差异化 10%、关键词 5% 评分]
+    SCORE --> HARD_CHECK{硬性条件是否满足?}
+    HARD_CHECK -- 否或未知 --> HARD_GAP[单独记录不满足/未知；不得由综合分抵消]
+    HARD_CHECK -- 是 --> RECOMMEND
+    HARD_GAP --> RECOMMEND[为记录标记 include、supporting、exclude 或 confirm]
+    RECOMMEND --> MATRIX[(evidence-matrix.json：排名、缺口、弱证据与面试风险)]
+    MATRIX --> MATCH_ONLY{用户是否只要求匹配分析?}
+    MATCH_ONLY -- 是 --> MATCH_OUT[/交付匹配结论、项目排名和未覆盖要求/]
+    MATCH_OUT --> END
+
+    MATCH_ONLY -- 否 --> EVIDENCE_GATE{拟写入的主要声明是否为<br/>verified 或 user_confirmed?}
+    EVIDENCE_GATE -- 否 --> WEAK_ACTION{不确认会导致事实错误<br/>或选错项目?}
+    WEAK_ACTION -- 是 --> CONFIRM[/提出少量高优先级确认问题/]
+    CONFIRM --> WAIT_CONFIRM([等待用户确认])
+    WEAK_ACTION -- 否 --> DOWNGRADE[降低措辞强度或排除弱声明]
+    DOWNGRADE --> PLAN
+    EVIDENCE_GATE -- 是 --> PLAN[阶段 8：选择经历/项目、规划 bullet 和一页内容预算]
+
+    PLAN --> PLAN_STORE[(resume-plan.json)]
+    PLAN_STORE --> GENERATE[阶段 9：生成 resume.md 与逐声明 resume-source-map.json]
+    GENERATE --> AUDIT[阶段 10–11：事实、相关性、重复性、篇幅和风险审计]
+    AUDIT --> SAFE_FIX{可否在不改变事实的前提下修复?}
+    SAFE_FIX -- 是 --> FIX[调整顺序、删重复、降强度、拆长句或自然补入有证据关键词]
+    FIX --> AUDIT
+    SAFE_FIX -- 否或已无问题 --> OUTPUTS[/交付 resume-review、missing-information、interview-questions 等/]
+    OUTPUTS --> COMPLETE_GATE{主要声明可追溯、边界清楚<br/>且审计与限制已完成?}
+    COMPLETE_GATE -- 是 --> COMPLETE[status = complete]
+    COMPLETE_GATE -- 否 --> PARTIAL[status = partial 或 needs_confirmation]
+    COMPLETE --> NO_SEND[不自动投递职位或发送简历]
+    PARTIAL --> NO_SEND
+    NO_SEND --> END
+
+    classDef terminator fill:#17324d,color:#fff,stroke:#17324d,stroke-width:2px;
+    classDef input fill:#e8f2ff,color:#102a43,stroke:#2f6fad,stroke-width:1.5px;
+    classDef process fill:#ffffff,color:#102a43,stroke:#486581,stroke-width:1.3px;
+    classDef decision fill:#fff4cf,color:#533f03,stroke:#b08900,stroke-width:1.5px;
+    classDef store fill:#e8f7ef,color:#123b2a,stroke:#2f855a,stroke-width:1.5px;
+    classDef warning fill:#fff0f0,color:#7a1f1f,stroke:#c24141,stroke-width:1.5px;
+
+    class START,END,WAIT_PROFILE,WAIT_CONFIRM terminator;
+    class JD_INPUT,TEMP_OUT,INIT_ERROR,ANALYSIS_OUT,NEED_PROFILE,MATCH_OUT,CONFIRM,OUTPUTS input;
+    class READONLY,WS_OK,INIT_OK,SOURCE_TYPE,VERSION_CONFLICT,ANALYSIS_ONLY,PROFILE_OK,HARD_CHECK,MATCH_ONLY,EVIDENCE_GATE,WEAK_ACTION,SAFE_FIX,COMPLETE_GATE decision;
+    class JD_STORE,MATRIX,PLAN_STORE store;
+    class HARD_GAP,DOWNGRADE,PARTIAL warning;
+

@@ -1,0 +1,88 @@
+flowchart TD
+    START([开始]) --> INPUT[/用户请求：个人材料、JD、现有简历或反馈/]
+    INPUT --> S0[阶段 0：识别任务、模式、目标岗位、已有输入和缺失输入]
+    S0 --> READONLY{用户明确要求<br/>只分析、不保存?}
+
+    READONLY -- 是 --> RO_ANALYZE[只读取当前输入并执行所需分析]
+    RO_ANALYZE --> RO_OUT[/输出分析结果和限制；不创建或更新 Workspace/]
+    RO_OUT --> END([结束])
+
+    READONLY -- 否 --> CHECK_WS[检查 Workspace、历史状态和上游输入]
+    CHECK_WS --> RUN_MANIFEST[创建或更新 state/run-manifest.json]
+    RUN_MANIFEST --> WS_OK{Workspace 已存在<br/>且结构有效?}
+    WS_OK -- 否 --> INIT[[阶段 1：初始化 Workspace]]
+    INIT --> VALIDATE_WS[运行 validate_workspace.py]
+    VALIDATE_WS --> VALID_INIT{结构校验通过?}
+    VALID_INIT -- 否 --> PARTIAL_INIT[/记录错误与限制；状态设为 partial/]
+    PARTIAL_INIT --> END
+    VALID_INIT -- 是 --> ROUTE{本次请求需要哪些阶段?}
+    WS_OK -- 是 --> ROUTE
+
+    ROUTE -- 个人材料 --> INGEST[[阶段 2–4：登记解析、规范化、完整性审计]]
+    INGEST --> EVIDENCE_DB[(候选人资料、项目、经历与证据状态)]
+    EVIDENCE_DB --> NEED_JOB{需要岗位匹配<br/>或生成定向简历?}
+    NEED_JOB -- 否 --> INGEST_OUT[/输出导入报告、完整性报告和高优先级问题/]
+    INGEST_OUT --> END
+    NEED_JOB -- 是 --> HAVE_JD{已有目标 JD?}
+    HAVE_JD -- 否 --> ASK_JD[/请求用户提供目标 JD/]
+    ASK_JD --> WAIT_JD([等待新输入])
+
+    ROUTE -- JD --> JD_ANALYZE[[阶段 5–6：保存原文、登记元数据并分析岗位]]
+    JD_ANALYZE --> JOB_DB[(jobs/job-id：JD 分析与元数据)]
+    JOB_DB --> NEED_MATCH{只需要 JD 分析?}
+    NEED_MATCH -- 是 --> JD_OUT[/输出 jd-analysis-summary.md/]
+    JD_OUT --> END
+    NEED_MATCH -- 否 --> HAVE_EVIDENCE{已有可用个人证据库?}
+    HAVE_EVIDENCE -- 否 --> ASK_RESUME[/请求用户提供简历或其他个人材料/]
+    ASK_RESUME --> WAIT_RESUME([等待新输入])
+    HAVE_EVIDENCE -- 是 --> MATCH
+
+    HAVE_JD -- 是 --> MATCH[[阶段 7：JD 要求与个人证据匹配]]
+    MATCH --> MATRIX[(evidence-matrix.json：分项得分、排名、缺口与风险)]
+    MATRIX --> HARD{硬性条件状态?}
+    HARD -- 不满足或未知 --> HARD_GAP[单独记录硬约束缺口；不得用总分抵消]
+    HARD -- 满足 --> CLAIM_GATE
+    HARD_GAP --> CLAIM_GATE{主要声明证据是否可用于简历?}
+    CLAIM_GATE -- 否：推断/冲突/不支持 --> HANDLE_WEAK[请求确认、降低措辞或排除声明]
+    HANDLE_WEAK --> CONFIRM_NEEDED{不确认会造成事实错误<br/>或严重误判?}
+    CONFIRM_NEEDED -- 是 --> QUESTIONS[/集中提出少量高优先级事实问题/]
+    QUESTIONS --> WAIT_CONFIRM([等待用户确认])
+    CONFIRM_NEEDED -- 否 --> PLAN
+    CLAIM_GATE -- 是 --> PLAN[[阶段 8：规划模块、经历、项目和 bullet 预算]]
+
+    PLAN --> RESUME_PLAN[(resume-plan.json)]
+    RESUME_PLAN --> GENERATE[[阶段 9：生成定向简历和逐声明来源映射]]
+    GENERATE --> DRAFTS[(resume.md + resume-source-map.json)]
+    DRAFTS --> AUDIT[[阶段 10–11：事实、相关性、重复性、篇幅、风险审计]]
+    AUDIT --> SAFE_FIX{问题能否在不改变事实<br/>的前提下安全修复?}
+    SAFE_FIX -- 是 --> AUTO_FIX[自动调整顺序、删除重复、降低措辞或拆分长 bullet]
+    AUTO_FIX --> AUDIT
+    SAFE_FIX -- 否或已无问题 --> FINAL_OUTPUTS[/输出审计、缺失信息和面试问题等文件/]
+    FINAL_OUTPUTS --> COMPLETE_GATE{主要声明可追溯、边界清楚<br/>且审计与限制均已明确?}
+    COMPLETE_GATE -- 是 --> COMPLETE[run-manifest.status = complete]
+    COMPLETE_GATE -- 否 --> PARTIAL[run-manifest.status = partial 或 needs_confirmation]
+    COMPLETE --> NO_SEND[不自动投递职位或发送简历]
+    PARTIAL --> NO_SEND
+    NO_SEND --> END
+
+    ROUTE -- 审计现有简历 --> AUDIT_EXISTING[登记简历来源并执行五类审计]
+    AUDIT_EXISTING --> AUDIT_REPORT[/输出审计报告、可安全修订版本与风险/]
+    AUDIT_REPORT --> END
+
+    ROUTE -- 反馈或新证据 --> UPDATE[[阶段 12：追加变更日志并更新对应事实层级]]
+    UPDATE --> IMPACT[只重跑受影响的完整性、匹配、规划、生成和审计阶段]
+    IMPACT --> END
+
+    classDef terminator fill:#17324d,color:#fff,stroke:#17324d,stroke-width:2px;
+    classDef input fill:#e8f2ff,color:#102a43,stroke:#2f6fad,stroke-width:1.5px;
+    classDef process fill:#ffffff,color:#102a43,stroke:#486581,stroke-width:1.3px;
+    classDef decision fill:#fff4cf,color:#533f03,stroke:#b08900,stroke-width:1.5px;
+    classDef store fill:#e8f7ef,color:#123b2a,stroke:#2f855a,stroke-width:1.5px;
+    classDef warning fill:#fff0f0,color:#7a1f1f,stroke:#c24141,stroke-width:1.5px;
+
+    class START,END,WAIT_JD,WAIT_RESUME,WAIT_CONFIRM terminator;
+    class INPUT,RO_OUT,PARTIAL_INIT,INGEST_OUT,ASK_JD,JD_OUT,ASK_RESUME,QUESTIONS,FINAL_OUTPUTS,AUDIT_REPORT input;
+    class READONLY,WS_OK,VALID_INIT,ROUTE,NEED_JOB,HAVE_JD,NEED_MATCH,HAVE_EVIDENCE,HARD,CLAIM_GATE,CONFIRM_NEEDED,SAFE_FIX,COMPLETE_GATE decision;
+    class EVIDENCE_DB,JOB_DB,MATRIX,RESUME_PLAN,DRAFTS store;
+    class HARD_GAP,HANDLE_WEAK,PARTIAL warning;
+

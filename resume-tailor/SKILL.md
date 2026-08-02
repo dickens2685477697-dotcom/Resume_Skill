@@ -46,11 +46,17 @@ description: 面向定向求职的简历证据管理与生成 Skill。读取用�
 ## 每次运行
 
 1. 检查 Workspace、现有资料、目标 JD 和历史状态。
-2. 创建或更新 `workspace/state/run-manifest.json`，记录任务、模式、目标岗位、已有输入、缺失输入、执行阶段与状态。
-3. 仅读取当前阶段需要的文件。文件契约和字段定义见 [workspace-schema.md](references/workspace-schema.md)。
-4. 按 [workflow.md](references/workflow.md) 执行相应阶段。
-5. 写入结果前执行证据与措辞检查。评分、写作和审计规则见 [scoring-writing-audit.md](references/scoring-writing-audit.md)。
-6. 在最终回复中列出生成文件、关键匹配结论、未解决风险和需要用户确认的少量高优先级问题。
+2. 使用脚本创建或更新 `workspace/state/run-manifest.json`，记录任务、模式、目标岗位、已有输入、缺失输入、执行阶段与状态；不要用行级补丁修改已有结构化文件。
+3. 按阶段只读取下列参考文件：
+   - `initialize`：直接运行初始化和校验脚本，不读取参考文件。
+   - `analyze-job`、`match`：读取 [job-match-workflow.md](references/job-match-workflow.md) 与 [scoring-writing-audit.md](references/scoring-writing-audit.md)。不要读取完整 Workspace schema，除非脚本报告本文件未解释的契约错误。
+   - `ingest`、`validate`、`update`：读取 [workflow.md](references/workflow.md) 与 [workspace-schema.md](references/workspace-schema.md)。
+   - `generate`、`audit`：读取 [workflow.md](references/workflow.md)、[workspace-schema.md](references/workspace-schema.md) 与 [scoring-writing-audit.md](references/scoring-writing-audit.md)。
+   - `full-run`：按进入的阶段读取对应参考，不要在开始时一次性加载全部参考。
+4. 只读取当前阶段需要的 Workspace 数据。岗位匹配先读取紧凑证据卡，再展开候选记录；不要打印全部 JSON、完整目录内容或已经读取过的记录。
+5. 使用 staging bundle 和确定性脚本更新已有 JSON。不要把新文件创建、来源目录更新、运行清单更新和变更日志追加混在一个大补丁中。
+6. 写入结果前执行证据与措辞检查；让脚本完成 schema 校验、总分计算、幂等 upsert 和原子替换。
+7. 在最终回复中列出生成文件、关键匹配结论、未解决风险和需要用户确认的少量高优先级问题。
 
 ## 初始化 Workspace
 
@@ -66,7 +72,7 @@ python3 <skill-dir>/scripts/init_workspace.py --root <task-dir>/workspace
 python3 <skill-dir>/scripts/validate_workspace.py --root <task-dir>/workspace
 ```
 
-Workspace 固定包含：`inbox/`、`sources/`、`profile/`、`experiences/`、`projects/`、`jobs/`、`outputs/` 和 `state/`。把新上传、尚未处理的材料放入 `inbox/`；保留原件。
+Workspace 固定包含：`inbox/`、`sources/`、`profile/`、`experiences/`、`projects/`、`jobs/`、`outputs/` 和 `state/`。`state/staging/` 只保存本次生成、尚未应用的中间 bundle；成功应用后可由脚本清理。把新上传、尚未处理的材料放入 `inbox/`；保留原件。
 
 ## 导入与规范化材料
 
@@ -79,11 +85,14 @@ Workspace 固定包含：`inbox/`、`sources/`、`profile/`、`experiences/`、`
 
 ## 分析岗位与匹配证据
 
-1. 原样保存用户给出的 JD。若用户只提供链接或要求核验，读取当前官方招聘页并保存访问日期；网络版本与用户版本冲突时，以用户指定版本为准。
-2. 拆分岗位目标、职责、硬性条件、加分项、能力、关键词、资历和硬约束。任何隐含要求标记为 `inferred_requirement`。
-3. 对每项高优先级要求检索相关项目，找到行动、产出、结果、职责范围与来源。
-4. 按参考规则评分并生成 `evidence-matrix.json`。关键词相同不能替代能力证据。
-5. 输出项目与经历排名、未覆盖要求、重复证明同一能力的记录、弱证据和面试追问风险。
+严格按 [job-match-workflow.md](references/job-match-workflow.md) 执行：
+
+1. 原样保存 JD 并拆分目标、职责、条件、能力、关键词、资历与硬约束。
+2. 运行 `scripts/prepare_match_context.py` 读取紧凑证据卡，只展开可能匹配的候选记录。
+3. 对高优先级要求匹配行动、产出、结果、责任范围和来源；关键词相同不能替代能力证据。
+4. 在新 staging 目录一次性生成岗位与匹配 bundle；不要直接修改已有 Workspace JSON。
+5. 运行 `scripts/apply_match_bundle.py` 做 dry-run、确定性计分、schema 校验和原子应用。
+6. 输出项目与经历排名、未覆盖要求、重复记录、弱证据和面试追问风险。
 
 ## 规划与生成简历
 

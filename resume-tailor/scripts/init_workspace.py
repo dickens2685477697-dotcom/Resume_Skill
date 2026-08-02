@@ -18,6 +18,7 @@ DIRECTORIES = (
     "projects",
     "jobs",
     "outputs",
+    "state/staging",
     "state/templates",
 )
 
