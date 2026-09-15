@@ -199,7 +199,7 @@ def detail_for_record(
     if full_details:
         for field in DETAIL_FIELDS:
             if field in record:
-                detail[field] = compact_generic(record[field], text_limit, list_limit=50)
+                detail[field] = record[field]
         return detail
 
     for field, field_limit in CARD_FIELDS.items():
@@ -208,23 +208,15 @@ def detail_for_record(
             continue
         card_limit = min(field_limit, max_items)
         if len(value) > card_limit:
-            detail[f"{field}_continuation"] = compact_generic(
-                value[card_limit:],
-                text_limit,
-                list_limit=50,
-            )
+            detail[f"{field}_continuation"] = value[card_limit:]
     metrics = record.get("metrics")
     if isinstance(metrics, list):
         metric_limit = min(2, max_items)
         if len(metrics) > metric_limit:
-            detail["metrics_continuation"] = compact_generic(
-                metrics[metric_limit:],
-                text_limit,
-                list_limit=50,
-            )
+            detail["metrics_continuation"] = metrics[metric_limit:]
     for field in ("source_refs", "field_evidence", "star_completeness"):
         if field in record:
-            detail[field] = compact_generic(record[field], text_limit, list_limit=50)
+            detail[field] = record[field]
     return detail
 
 
@@ -335,9 +327,47 @@ def build_context(
         "workspace": str(root),
         "record_count": len(payload_records),
         "warnings": warnings,
-        "profile": compact_profile(root, text_limit),
+        "profile": compact_profile(root, text_limit) if mode == "cards" else {},
         "records": payload_records,
     }
+
+
+def context_page(payload: dict[str, Any], offset: int, budget: int, pretty: bool) -> str:
+    """Page whole records without silently dropping evidence or exceeding budget."""
+    records = payload["records"]
+    if offset < 0 or (offset >= len(records) and offset != 0):
+        raise ValueError("Offset is outside the record list")
+    page = dict(payload)
+    page["records"] = []
+    if offset:
+        page["profile"] = {}
+    page["total_record_count"] = len(records)
+    page["offset"] = offset
+
+    def serialize(end: int) -> str:
+        page["record_count"] = len(page["records"])
+        page["next_offset"] = end if end < len(records) else None
+        page["omitted_record_count"] = len(records) - end
+        return json.dumps(page, ensure_ascii=False, indent=2 if pretty else None,
+                          separators=None if pretty else (",", ":"))
+
+    output = serialize(offset)
+    for index in range(offset, len(records)):
+        page["records"].append(records[index])
+        candidate = serialize(index + 1)
+        if len(candidate) > budget:
+            page["records"].pop()
+            if not page["records"]:
+                raise ValueError(
+                    f"Record at offset {offset} with page metadata needs {len(candidate)} "
+                    "characters; increase --max-output-chars for this record. "
+                    "Evidence was not truncated."
+                )
+            break
+        output = candidate
+    if len(output) > budget:
+        raise ValueError("Profile/page metadata exceeds budget; increase --max-output-chars")
+    return output
 
 
 def main() -> int:
@@ -364,8 +394,8 @@ def main() -> int:
     parser.add_argument(
         "--max-output-chars",
         type=int,
-        default=60000,
-        help="Fail instead of flooding context when serialized output exceeds this size",
+        default=16000,
+        help="Character budget per page; oversized single records require explicit expansion",
     )
     parser.add_argument(
         "--full-details",
@@ -373,6 +403,7 @@ def main() -> int:
         help="Repeat full selected records instead of returning only data omitted from prior cards",
     )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON for debugging")
+    parser.add_argument("--offset", type=int, default=0, help="Resume at next_offset with identical selection and limits")
     args = parser.parse_args()
     if args.max_items_per_field < 1 or args.max_text_chars < 40 or args.max_output_chars < 1000:
         parser.error("Limits must be positive and large enough to preserve usable evidence")
@@ -385,18 +416,7 @@ def main() -> int:
             args.max_items_per_field,
             args.full_details,
         )
-        separators = None if args.pretty else (",", ":")
-        output = json.dumps(
-            payload,
-            ensure_ascii=False,
-            indent=2 if args.pretty else None,
-            separators=separators,
-        )
-        if len(output) > args.max_output_chars:
-            raise ValueError(
-                f"Prepared context is {len(output)} characters, above the "
-                f"{args.max_output_chars} limit; request fewer --record values or lower limits"
-            )
+        output = context_page(payload, args.offset, args.max_output_chars, args.pretty)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False))
         return 1

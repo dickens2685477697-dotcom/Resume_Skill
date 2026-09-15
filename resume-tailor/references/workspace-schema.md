@@ -37,6 +37,7 @@ workspace/
 │   ├── jd-analysis.json
 │   ├── jd-analysis-summary.md
 │   ├── evidence-matrix.json
+│   ├── experience-tailoring.json
 │   └── resume-plan.json
 ├── outputs/<job-id>/
 │   ├── resume.md
@@ -123,7 +124,7 @@ workspace/
 ```json
 {
   "task": "",
-  "mode": "initialize|ingest|validate|analyze-job|match|generate|audit|update|full-run",
+  "mode": "initialize|ingest|validate|analyze-job|match|polish|generate|audit|update|full-run",
   "target_job_id": null,
   "available_inputs": [],
   "missing_inputs": [],
@@ -254,6 +255,67 @@ workspace/
 }
 ```
 
+`experience-tailoring.json` 保存证据锁定后的单岗位表达层，不修改通用经历事实：
+
+```json
+{
+  "job_id": "sample-role",
+  "source_evidence_matrix_sha256": "sha256-of-evidence-matrix.json",
+  "role_narrative": {
+    "core_problem": "",
+    "priority_signals": [],
+    "expected_outputs": [],
+    "supported_keywords": [],
+    "unsafe_terms": []
+  },
+  "records": [
+    {
+      "record_type": "project|experience",
+      "record_id": "sample-project",
+      "positioning": "",
+      "requirement_refs": [],
+      "primary_signals": [],
+      "supporting_signals": [],
+      "evidence_selection": [
+        {
+          "field_paths": ["actions[0]", "deliverables[0]"],
+          "source_refs": [{"source_id": "src-001", "location": "p. 1"}],
+          "evidence_status": "verified",
+          "intended_signal": "",
+          "ownership": "individual|shared|team_result",
+          "measurement_type": null
+        }
+      ],
+      "bullet_candidates": [
+        {
+          "bullet_id": "sample-project-bullet-1",
+          "draft": "",
+          "primary_signal": "",
+          "requirement_refs": [],
+          "field_paths": [],
+          "source_refs": [{"source_id": "src-001", "location": "p. 1"}],
+          "evidence_status": "verified",
+          "keyword_alignment": [],
+          "ownership": "individual|shared|team_result",
+          "risk_notes": [],
+          "selection_status": "selected|alternate|exclude"
+        }
+      ],
+      "excluded_evidence": []
+    }
+  ],
+  "cross_record_strategy": {
+    "primary_narrative": "",
+    "coverage_allocation": [],
+    "deduplication_decisions": []
+  },
+  "unresolved_questions": [],
+  "updated_at": ""
+}
+```
+
+`source_evidence_matrix_sha256` 保存当前 `evidence-matrix.json` 文件的 SHA-256，用于判断润色结果是否过期。每个 bullet 必须引用已锁定的事实字段；`inferred`、`conflicting`、`missing` 和 `unsupported` 不得进入 `selected`。`resume-plan.json` 中的 bullet 计划应引用 `selection_status: selected` 的 `bullet_id`。
+
 `resume-plan.json`：
 
 ```json
@@ -300,5 +362,5 @@ workspace/
 2. 新证据覆盖旧推断时，更新证据状态并向 `state/change-log.jsonl` 追加变更；不要无痕覆盖。
 3. 针对一个 JD 的措辞只保存在 `jobs/` 或 `outputs/`，不改变项目原始事实。
 4. 材料冲突时标记字段与来源，等待用户确认。
-5. 只重新运行受影响的完整性、匹配、规划、生成和审计阶段。
+5. 只重新运行受影响的完整性、匹配、润色、规划、生成和审计阶段。
 6. 岗位分析和匹配不得用行级大补丁更新已有 JSON；按 `job-match-workflow.md` 在 `state/staging/` 生成 bundle，再由脚本校验、upsert 和原子替换。

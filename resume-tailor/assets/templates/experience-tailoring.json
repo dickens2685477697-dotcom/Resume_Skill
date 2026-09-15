@@ -1,0 +1,19 @@
+{
+  "job_id": "",
+  "source_evidence_matrix_sha256": "",
+  "role_narrative": {
+    "core_problem": "",
+    "priority_signals": [],
+    "expected_outputs": [],
+    "supported_keywords": [],
+    "unsafe_terms": []
+  },
+  "records": [],
+  "cross_record_strategy": {
+    "primary_narrative": "",
+    "coverage_allocation": [],
+    "deduplication_decisions": []
+  },
+  "unresolved_questions": [],
+  "updated_at": ""
+}

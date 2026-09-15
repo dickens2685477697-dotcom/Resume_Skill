@@ -47,13 +47,15 @@ flowchart TD
     HANDLE_WEAK --> CONFIRM_NEEDED{不确认会造成事实错误<br/>或严重误判?}
     CONFIRM_NEEDED -- 是 --> QUESTIONS[/集中提出少量高优先级事实问题/]
     QUESTIONS --> WAIT_CONFIRM([等待用户确认])
-    CONFIRM_NEEDED -- 否 --> PLAN
-    CLAIM_GATE -- 是 --> PLAN[[阶段 8：规划模块、经历、项目和 bullet 预算]]
+    CONFIRM_NEEDED -- 否 --> POLISH
+    CLAIM_GATE -- 是 --> POLISH[[阶段 8：按 JD 锁定事实、重构经历叙事并生成 bullet 候选]]
 
+    POLISH --> TAILORING[(experience-tailoring.json)]
+    TAILORING --> PLAN[[阶段 9：规划模块、经历、项目和 bullet 预算]]
     PLAN --> RESUME_PLAN[(resume-plan.json)]
-    RESUME_PLAN --> GENERATE[[阶段 9：生成定向简历和逐声明来源映射]]
+    RESUME_PLAN --> GENERATE[[阶段 10：生成定向简历和逐声明来源映射]]
     GENERATE --> DRAFTS[(resume.md + resume-source-map.json)]
-    DRAFTS --> AUDIT[[阶段 10–11：事实、相关性、重复性、篇幅、风险审计]]
+    DRAFTS --> AUDIT[[阶段 11–12：事实、相关性、重复性、篇幅、风险审计]]
     AUDIT --> SAFE_FIX{问题能否在不改变事实<br/>的前提下安全修复?}
     SAFE_FIX -- 是 --> AUTO_FIX[自动调整顺序、删除重复、降低措辞或拆分长 bullet]
     AUTO_FIX --> AUDIT
@@ -69,8 +71,8 @@ flowchart TD
     AUDIT_EXISTING --> AUDIT_REPORT[/输出审计报告、可安全修订版本与风险/]
     AUDIT_REPORT --> END
 
-    ROUTE -- 反馈或新证据 --> UPDATE[[阶段 12：追加变更日志并更新对应事实层级]]
-    UPDATE --> IMPACT[只重跑受影响的完整性、匹配、规划、生成和审计阶段]
+    ROUTE -- 反馈或新证据 --> UPDATE[[阶段 13：追加变更日志并更新对应事实层级]]
+    UPDATE --> IMPACT[只重跑受影响的完整性、匹配、润色、规划、生成和审计阶段]
     IMPACT --> END
 
     classDef terminator fill:#17324d,color:#fff,stroke:#17324d,stroke-width:2px;
@@ -83,6 +85,5 @@ flowchart TD
     class START,END,WAIT_JD,WAIT_RESUME,WAIT_CONFIRM terminator;
     class INPUT,RO_OUT,PARTIAL_INIT,INGEST_OUT,ASK_JD,JD_OUT,ASK_RESUME,QUESTIONS,FINAL_OUTPUTS,AUDIT_REPORT input;
     class READONLY,WS_OK,VALID_INIT,ROUTE,NEED_JOB,HAVE_JD,NEED_MATCH,HAVE_EVIDENCE,HARD,CLAIM_GATE,CONFIRM_NEEDED,SAFE_FIX,COMPLETE_GATE decision;
-    class EVIDENCE_DB,JOB_DB,MATRIX,RESUME_PLAN,DRAFTS store;
+    class EVIDENCE_DB,JOB_DB,MATRIX,TAILORING,RESUME_PLAN,DRAFTS store;
     class HARD_GAP,HANDLE_WEAK,PARTIAL warning;
-

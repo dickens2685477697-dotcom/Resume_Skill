@@ -20,6 +20,7 @@
 - 检查项目是否具备可用的 STAR 信息与来源证据；
 - 分析目标岗位的职责、硬性条件、能力要求和 ATS 关键词；
 - 按 JD 相关性、证据强度、个人主导程度、结果影响等维度匹配经历；
+- 在证据锁定后，按具体 JD 重构经历叙事、取舍事实并生成可追溯的 bullet 候选；
 - 选择最相关的项目，生成一页或指定篇幅的定向简历；
 - 生成逐条声明的来源映射、事实审计、缺失信息清单和面试追问；
 - 接收新材料或用户反馈，并只重新运行受影响的阶段。
@@ -144,6 +145,7 @@ $resume-tailor 更新：该测试共有 8 名参与者；需求由我提出，�
 | 检查证据缺口 | `$resume-tailor 检查所有项目的 STAR 和证据完整性，只问最关键的问题。` |
 | 只分析 JD | `$resume-tailor 只分析这个 JD，不生成简历。` |
 | 匹配岗位 | `$resume-tailor 把这个 JD 与我的经历库匹配，列出项目排名、硬性条件和未覆盖要求。` |
+| 润色经历 | `$resume-tailor 证据已经确认，请根据这个 JD 润色最相关的经历；说明每条在回应什么要求，并保留来源映射。` |
 | 生成定向简历 | `$resume-tailor 根据这个 JD 生成一页中文简历，并保留逐条来源映射。` |
 | 审计现有简历 | `$resume-tailor 审计这份简历的事实、相关性、重复、篇幅和追问风险。` |
 | 更新经历库 | `$resume-tailor 用我刚补充的数据更新项目记录，并重新运行受影响阶段。` |
@@ -159,7 +161,8 @@ Skill 支持以下运行阶段：
 | `validate` | 检查项目、STAR 和证据完整性 |
 | `analyze-job` | 登记并分析目标岗位 |
 | `match` | 匹配岗位要求与个人证据 |
-| `generate` | 规划并生成定向简历 |
+| `polish` | 证据锁定后，按具体 JD 润色经历并生成 bullet 候选 |
+| `generate` | 基于岗位定向润色结果规划并生成简历 |
 | `audit` | 审查事实、相关性、重复性、篇幅和风险 |
 | `update` | 用新材料、补充信息或反馈更新经历库 |
 | `full-run` | 从已有材料运行完整流程 |
@@ -177,7 +180,7 @@ workspace/
 ├── profile/                       # 基础信息、教育、技能、奖项和待确认问题
 ├── experiences/                   # 工作、实习和研究经历；一项一个 JSON
 ├── projects/                      # 项目记录；一个项目一个 JSON
-├── jobs/<job-id>/                 # JD 原文、岗位分析、证据矩阵和简历计划
+├── jobs/<job-id>/                 # JD 原文、岗位分析、证据矩阵、经历润色和简历计划
 ├── outputs/<job-id>/              # 最终简历与审计结果
 └── state/                         # 运行状态、变更日志、模板和 staging 数据
 ```
@@ -190,6 +193,7 @@ workspace/jobs/<job-id>/
 ├── jd-analysis.json
 ├── jd-analysis-summary.md
 ├── evidence-matrix.json
+├── experience-tailoring.json
 └── resume-plan.json
 
 workspace/outputs/<job-id>/
@@ -208,6 +212,7 @@ workspace/outputs/<job-id>/
 - `missing-information.md`：申请前必须确认、建议补充和允许缺失的信息；
 - `interview-questions.md`：围绕简历声明、岗位能力和弱证据生成的追问；
 - `evidence-matrix.json`：岗位要求、匹配记录、分项评分、风险和推荐用途。
+- `experience-tailoring.json`：证据锁定后的岗位叙事、事实取舍、bullet 候选及其 JD 与来源映射。
 
 ## 证据状态
 
@@ -247,7 +252,7 @@ python3 resume-tailor/scripts/validate_workspace.py --root ./workspace
 
 ### 准备紧凑匹配上下文
 
-先读取全部记录的证据卡：
+先分页读取全部记录的证据卡（默认每页 16,000 字符；`--pretty` 仅用于人工调试）：
 
 ```bash
 python3 resume-tailor/scripts/prepare_match_context.py \
@@ -255,7 +260,9 @@ python3 resume-tailor/scripts/prepare_match_context.py \
   --pretty
 ```
 
-再只展开候选记录：
+当 `next_offset` 非空时，保留相同参数并添加 `--offset <next_offset>` 续读。卡片读完后先展开 3–4 项候选；高优先级要求覆盖不足时再补充。详情同样支持分页，单条证据超预算时按报错提高 `--max-output-chars`，不会截断详细来源和事实。卡片截短的事实用于最终声明前须通过 `--full-details` 核对。
+
+展开候选记录：
 
 ```bash
 python3 resume-tailor/scripts/prepare_match_context.py \
@@ -279,17 +286,17 @@ python3 resume-tailor/scripts/apply_match_bundle.py start \
 python3 resume-tailor/scripts/apply_match_bundle.py apply \
   --root ./workspace \
   --bundle-dir ./workspace/state/staging/<bundle-id> \
-  --dry-run
-
-python3 resume-tailor/scripts/apply_match_bundle.py apply \
-  --root ./workspace \
-  --bundle-dir ./workspace/state/staging/<bundle-id> \
   --consume
 
-python3 resume-tailor/scripts/validate_workspace.py --root ./workspace
 ```
 
-应用脚本会校验 bundle、按固定权重计算匹配分、幂等更新来源目录、追加变更日志，并在全部内容有效后原子替换目标文件。
+应用脚本包含写入前后校验和失败恢复，并确定性计分、幂等更新来源目录和追加变更日志。默认直接 apply；排错或预览时可先加 `--dry-run`，成功应用后不必立即重复全量校验。
+
+### 生成与报告范围
+
+润色和生成使用紧凑的 [`generation-contract.md`](resume-tailor/references/generation-contract.md)，无需默认加载完整 Workspace schema。连续阶段复用已读上下文。
+
+默认生成所请求的简历或润色段落，保留必要岗位数据、来源映射并执行审计。独立审计报告、缺口报告、面试题按用户请求或“完整报告”输出；`full-run` 表示执行完整流程，不自动扩展为全部报告。本轮未迁移既有数据结构，也未实现按记录的增量失效缓存。
 
 ### 运行测试
 

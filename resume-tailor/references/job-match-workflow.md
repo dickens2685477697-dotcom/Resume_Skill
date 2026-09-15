@@ -15,7 +15,7 @@
 
 ## 1. 初始化并开始运行
 
-先补齐缺失目录；脚本保持幂等，不覆盖已有文件：
+仅在 Workspace 尚未初始化或目录缺失时运行 init；已有完整 Workspace 直接 start。脚本保持幂等，不覆盖已有文件：
 
 ```bash
 python3 <skill-dir>/scripts/init_workspace.py --root <workspace>
@@ -62,7 +62,9 @@ python3 <skill-dir>/scripts/prepare_match_context.py \
 
 详细模式默认只返回证据卡中省略的 `*_continuation`、完整 `field_evidence`、来源与 STAR 状态，避免重复已在上下文中的内容。只有没有先读取证据卡的独立调试才使用 `--full-details`。
 
-通常展开 5–7 项候选记录。只有某项高优先级要求仍无候选证据时，再展开其他记录；不要重新打印已经读取的记录。
+默认每页预算 16,000 字符。`next_offset` 非空时，用相同参数加 `--offset <next_offset>` 续读；卡片全部读完后再筛选，不能把未读记录视为不相关。详情分页也须续读。`omitted_record_count` 表示剩余记录。
+
+通常先展开 3–4 项候选；高优先级要求覆盖不足时再补充。详情保留完整来源和事实，单条超预算会报所需大小，按提示提高该次 `--max-output-chars`。卡片文本含省略号时，最终使用前用 `--full-details` 核对原文。续读期间数据变化应重新读取卡片。
 
 ## 4. 完成匹配判断
 
@@ -100,7 +102,7 @@ python3 <skill-dir>/scripts/prepare_match_context.py \
 }
 ```
 
-应用脚本按 35%、25%、15%、10%、10%、5% 计算并覆盖 `match_score`，使用四舍五入到整数。不要在模型侧修正一分误差。
+上述六项分别评估职责/成功目标对应程度、来源与事实可靠性、本人责任边界、真实结果或交付影响、相对其他经历的独特能力、自然且有证据的岗位词汇。应用脚本按 35%、25%、15%、10%、10%、5% 计算并覆盖 `match_score`，使用四舍五入到整数。不要在模型侧修正一分误差。硬条件单独标明满足、不满足或未知，不用总分抵消。
 
 ## 5. 创建 staging bundle
 
@@ -179,7 +181,7 @@ python3 <skill-dir>/scripts/prepare_match_context.py \
 
 ## 6. 校验并应用
 
-先做只读校验：
+默认直接应用，脚本包含前后校验及失败恢复。仅排错或用户要求预览时先做只读校验：
 
 ```bash
 python3 <skill-dir>/scripts/apply_match_bundle.py apply \
@@ -195,7 +197,6 @@ python3 <skill-dir>/scripts/apply_match_bundle.py apply \
   --root <workspace> \
   --bundle-dir <bundle-dir> \
   --consume
-python3 <skill-dir>/scripts/validate_workspace.py --root <workspace>
 ```
 
 脚本会：
@@ -208,7 +209,7 @@ python3 <skill-dir>/scripts/validate_workspace.py --root <workspace>
 - 所有内容验证通过后才原子替换目标文件；
 - 最终 Workspace 校验失败时恢复原文件。
 
-若 dry-run 失败，只修改错误信息指向的 staging 文件。不要重新生成整个 bundle，也不要回退到直接补丁修改已有 Workspace JSON。
+若校验失败，只修改错误指向的 staging 文件。成功 apply 后无需立即再运行全量校验。不要重新生成整个 bundle，也不要回退到直接补丁修改已有 Workspace JSON。
 
 ## 7. 交付
 

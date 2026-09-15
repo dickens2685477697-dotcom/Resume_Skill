@@ -249,6 +249,41 @@ class MatchWorkflowTest(unittest.TestCase):
         self.assertEqual(full_details["records"][0]["detail_mode"], "full")
         self.assertEqual(len(full_details["records"][0]["actions"]), 4)
 
+    def test_context_pages_preserve_all_records_and_budget(self) -> None:
+        original = json.loads((self.root / "projects/sample-project.json").read_text())
+        for index in range(8):
+            record = dict(original, project_id=f"extra-{index}")
+            (self.root / f"projects/extra-{index}.json").write_text(json.dumps(record))
+        offset = 0
+        seen = []
+        while True:
+            result = run_script("prepare_match_context.py", "--root", self.root,
+                                "--max-output-chars", 4000, "--offset", offset)
+            self.assertLessEqual(len(result.stdout.rstrip("\n")), 4000)
+            page = json.loads(result.stdout)
+            seen.extend(record["record_id"] for record in page["records"])
+            if page["next_offset"] is None:
+                break
+            self.assertGreater(page["next_offset"], offset)
+            offset = page["next_offset"]
+        self.assertEqual(len(seen), 9)
+        self.assertEqual(len(set(seen)), 9)
+
+    def test_oversized_evidence_requires_expansion_without_truncation(self) -> None:
+        path = self.root / "projects/sample-project.json"
+        record = json.loads(path.read_text())
+        note = "Evidence boundary. " * 1500
+        record["field_evidence"]["actions[0]"]["notes"] = note
+        path.write_text(json.dumps(record))
+        result = run_script("prepare_match_context.py", "--root", self.root,
+                            "--record", "sample-project", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not truncated", result.stdout)
+        expanded = run_script("prepare_match_context.py", "--root", self.root,
+                              "--record", "sample-project", "--max-output-chars", 40000)
+        self.assertEqual(json.loads(expanded.stdout)["records"][0]
+                         ["field_evidence"]["actions[0]"]["notes"], note)
+
     def test_bundle_apply_is_validated_scored_and_idempotent(self) -> None:
         job_id = "sample-product-manager"
         bundle_dir = self.start_bundle(job_id)

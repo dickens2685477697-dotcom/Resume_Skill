@@ -51,16 +51,18 @@ flowchart TD
     WEAK_ACTION -- 是 --> CONFIRM[/提出少量高优先级确认问题/]
     CONFIRM --> WAIT_CONFIRM([等待用户确认])
     WEAK_ACTION -- 否 --> DOWNGRADE[降低措辞强度或排除弱声明]
-    DOWNGRADE --> PLAN
-    EVIDENCE_GATE -- 是 --> PLAN[阶段 8：选择经历/项目、规划 bullet 和一页内容预算]
+    DOWNGRADE --> POLISH
+    EVIDENCE_GATE -- 是 --> POLISH[阶段 8：锁定事实并按 JD 重构经历叙事、生成 bullet 候选]
 
+    POLISH --> TAILORING[(experience-tailoring.json)]
+    TAILORING --> PLAN[阶段 9：选择经历/项目、规划 bullet 和一页内容预算]
     PLAN --> PLAN_STORE[(resume-plan.json)]
-    PLAN_STORE --> GENERATE[阶段 9：生成 resume.md 与逐声明 resume-source-map.json]
-    GENERATE --> AUDIT[阶段 10–11：事实、相关性、重复性、篇幅和风险审计]
+    PLAN_STORE --> GENERATE[阶段 10：生成 resume.md 与逐声明 resume-source-map.json]
+    GENERATE --> AUDIT[阶段 11–12：事实、相关性、重复性、篇幅和风险审计]
     AUDIT --> SAFE_FIX{可否在不改变事实的前提下修复?}
     SAFE_FIX -- 是 --> FIX[调整顺序、删重复、降强度、拆长句或自然补入有证据关键词]
     FIX --> AUDIT
-    SAFE_FIX -- 否或已无问题 --> OUTPUTS[/交付 resume-review、missing-information、interview-questions 等/]
+    SAFE_FIX -- 否或已无问题 --> OUTPUTS[/交付请求的产物与审计结论；独立报告和面试题按需生成/]
     OUTPUTS --> COMPLETE_GATE{主要声明可追溯、边界清楚<br/>且审计与限制已完成?}
     COMPLETE_GATE -- 是 --> COMPLETE[status = complete]
     COMPLETE_GATE -- 否 --> PARTIAL[status = partial 或 needs_confirmation]
@@ -78,6 +80,5 @@ flowchart TD
     class START,END,WAIT_PROFILE,WAIT_CONFIRM terminator;
     class JD_INPUT,TEMP_OUT,INIT_ERROR,ANALYSIS_OUT,NEED_PROFILE,MATCH_OUT,CONFIRM,OUTPUTS input;
     class READONLY,WS_OK,INIT_OK,SOURCE_TYPE,VERSION_CONFLICT,ANALYSIS_ONLY,PROFILE_OK,HARD_CHECK,MATCH_ONLY,EVIDENCE_GATE,WEAK_ACTION,SAFE_FIX,COMPLETE_GATE decision;
-    class JD_STORE,MATRIX,PLAN_STORE store;
+    class JD_STORE,MATRIX,TAILORING,PLAN_STORE store;
     class HARD_GAP,DOWNGRADE,PARTIAL warning;
-

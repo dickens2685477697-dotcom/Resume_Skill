@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -110,10 +111,12 @@ EVIDENCE_STATUSES = {
 RECORD_STATUSES = {"draft", "complete", "usable_with_gaps", "insufficient"}
 EXPERIENCE_TYPES = {"internship", "employment", "research", "course", "personal", "volunteer"}
 MEASUREMENT_TYPES = {"actual", "target", "baseline", "estimate"}
-RUN_MODES = {"initialize", "ingest", "validate", "analyze-job", "match", "generate", "audit", "update", "full-run"}
+RUN_MODES = {"initialize", "ingest", "validate", "analyze-job", "match", "polish", "generate", "audit", "update", "full-run"}
 RUN_STATUSES = {"in_progress", "needs_confirmation", "complete", "partial"}
 RECORD_TYPES = {"project", "experience"}
 RESUME_RECOMMENDATIONS = {"include", "supporting", "exclude", "confirm"}
+OWNERSHIP_TYPES = {"individual", "shared", "team_result"}
+BULLET_SELECTION_STATUSES = {"selected", "alternate", "exclude"}
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -235,6 +238,7 @@ def validate_job_files(root: Path, errors: list[str]) -> None:
         "job-metadata.json": {"job_id": str, "company": str, "role": str, "location": str, "source_url": str, "user_version": bool, "web_verified": bool, "accessed_at": str, "target_language": str, "page_limit": int},
         "jd-analysis.json": {"role_objective": list, "responsibilities": list, "must_have": list, "nice_to_have": list, "competencies": list, "keywords": list, "hard_constraints": list, "inferred_requirements": list, "priority_weights": list},
         "evidence-matrix.json": {"job_id": str, "requirements": list, "record_ranking": list, "uncovered_requirements": list, "weak_evidence": list},
+        "experience-tailoring.json": {"job_id": str, "source_evidence_matrix_sha256": str, "role_narrative": dict, "records": list, "cross_record_strategy": dict, "unresolved_questions": list, "updated_at": str},
         "resume-plan.json": {"target_language": str, "page_limit": int, "selected_experiences": list, "selected_projects": list, "bullet_plan": list, "section_order": list, "excluded_items": list, "coverage_summary": dict, "known_gaps": list},
     }
     jobs = root / "jobs"
@@ -274,6 +278,93 @@ def validate_job_files(root: Path, errors: list[str]) -> None:
                                 continue
                             validate_identifier(record.get("record_id"), "record_id", path, errors)
                             validate_record_reference(root, record.get("record_type"), record.get("record_id"), path, errors)
+                if file_name == "experience-tailoring.json" and isinstance(data, dict) and isinstance(data.get("records"), list):
+                    matrix_sha256 = data.get("source_evidence_matrix_sha256")
+                    if not isinstance(matrix_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", matrix_sha256):
+                        errors.append(f"Invalid source_evidence_matrix_sha256: {path}")
+                    matrix_path = job_dir / "evidence-matrix.json"
+                    if not matrix_path.is_file():
+                        errors.append(f"experience-tailoring.json requires evidence-matrix.json: {path}")
+                    elif isinstance(matrix_sha256, str) and re.fullmatch(r"[0-9a-f]{64}", matrix_sha256):
+                        actual_sha256 = hashlib.sha256(matrix_path.read_bytes()).hexdigest()
+                        if matrix_sha256 != actual_sha256:
+                            errors.append(f"experience-tailoring.json is stale for evidence-matrix.json: {path}")
+                    role_narrative = data.get("role_narrative")
+                    if isinstance(role_narrative, dict):
+                        missing = {"core_problem", "priority_signals", "expected_outputs", "supported_keywords", "unsafe_terms"} - role_narrative.keys()
+                        if missing:
+                            errors.append(f"Missing role_narrative keys: {', '.join(sorted(missing))}: {path}")
+                    strategy = data.get("cross_record_strategy")
+                    if isinstance(strategy, dict):
+                        missing = {"primary_narrative", "coverage_allocation", "deduplication_decisions"} - strategy.keys()
+                        if missing:
+                            errors.append(f"Missing cross_record_strategy keys: {', '.join(sorted(missing))}: {path}")
+                    for record_index, record in enumerate(data["records"]):
+                        if not isinstance(record, dict):
+                            errors.append(f"records[{record_index}] must be an object: {path}")
+                            continue
+                        required = {"record_type", "record_id", "positioning", "requirement_refs", "primary_signals", "supporting_signals", "evidence_selection", "bullet_candidates", "excluded_evidence"}
+                        missing = required - record.keys()
+                        if missing:
+                            errors.append(f"Missing keys in records[{record_index}]: {', '.join(sorted(missing))}: {path}")
+                        if record.get("record_type") not in RECORD_TYPES:
+                            errors.append(f"Invalid record_type in records[{record_index}]: {path}")
+                        validate_identifier(record.get("record_id"), "record_id", path, errors)
+                        validate_record_reference(root, record.get("record_type"), record.get("record_id"), path, errors)
+                        selections = record.get("evidence_selection")
+                        if not isinstance(selections, list):
+                            errors.append(f"evidence_selection in records[{record_index}] must be an array: {path}")
+                        else:
+                            for selection_index, selection in enumerate(selections):
+                                if not isinstance(selection, dict):
+                                    errors.append(f"evidence_selection[{selection_index}] in records[{record_index}] must be an object: {path}")
+                                    continue
+                                required_selection = {"field_paths", "source_refs", "evidence_status", "intended_signal", "ownership", "measurement_type"}
+                                missing = required_selection - selection.keys()
+                                if missing:
+                                    errors.append(f"Missing keys in evidence_selection[{selection_index}] in records[{record_index}]: {', '.join(sorted(missing))}: {path}")
+                                if selection.get("evidence_status") not in EVIDENCE_STATUSES:
+                                    errors.append(f"Invalid evidence_status in evidence_selection[{selection_index}] in records[{record_index}]: {path}")
+                                elif selection.get("evidence_status") not in {"verified", "user_confirmed"}:
+                                    errors.append(f"Unusable evidence_status in evidence_selection[{selection_index}] in records[{record_index}]: {path}")
+                                if selection.get("ownership") not in OWNERSHIP_TYPES:
+                                    errors.append(f"Invalid ownership in evidence_selection[{selection_index}] in records[{record_index}]: {path}")
+                                if not isinstance(selection.get("field_paths"), list) or not selection.get("field_paths"):
+                                    errors.append(f"evidence_selection[{selection_index}] in records[{record_index}] must cite field_paths: {path}")
+                                if not isinstance(selection.get("source_refs"), list) or not selection.get("source_refs"):
+                                    errors.append(f"evidence_selection[{selection_index}] in records[{record_index}] must cite source_refs: {path}")
+                                measurement_type = selection.get("measurement_type")
+                                if measurement_type is not None and measurement_type not in MEASUREMENT_TYPES:
+                                    errors.append(f"Invalid measurement_type in evidence_selection[{selection_index}] in records[{record_index}]: {path}")
+                        bullets = record.get("bullet_candidates")
+                        if not isinstance(bullets, list):
+                            errors.append(f"bullet_candidates in records[{record_index}] must be an array: {path}")
+                            continue
+                        for bullet_index, bullet in enumerate(bullets):
+                            if not isinstance(bullet, dict):
+                                errors.append(f"bullet_candidates[{bullet_index}] in records[{record_index}] must be an object: {path}")
+                                continue
+                            required_bullet = {"bullet_id", "draft", "primary_signal", "requirement_refs", "field_paths", "source_refs", "evidence_status", "keyword_alignment", "ownership", "risk_notes", "selection_status"}
+                            missing = required_bullet - bullet.keys()
+                            if missing:
+                                errors.append(f"Missing keys in bullet_candidates[{bullet_index}] in records[{record_index}]: {', '.join(sorted(missing))}: {path}")
+                            validate_identifier(bullet.get("bullet_id"), "bullet_id", path, errors)
+                            if bullet.get("evidence_status") not in EVIDENCE_STATUSES:
+                                errors.append(f"Invalid evidence_status in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
+                            if bullet.get("ownership") not in OWNERSHIP_TYPES:
+                                errors.append(f"Invalid ownership in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
+                            if bullet.get("selection_status") not in BULLET_SELECTION_STATUSES:
+                                errors.append(f"Invalid selection_status in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
+                            if bullet.get("selection_status") == "selected" and bullet.get("evidence_status") not in {"verified", "user_confirmed"}:
+                                errors.append(f"Selected bullet has unusable evidence_status in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
+                            if bullet.get("selection_status") in {"selected", "alternate"} and (not isinstance(bullet.get("field_paths"), list) or not bullet.get("field_paths")):
+                                errors.append(f"Usable bullet must cite field_paths in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
+                            if bullet.get("selection_status") in {"selected", "alternate"} and (not isinstance(bullet.get("source_refs"), list) or not bullet.get("source_refs")):
+                                errors.append(f"Usable bullet must cite source_refs in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
+                            if bullet.get("selection_status") in {"selected", "alternate"} and (not isinstance(bullet.get("requirement_refs"), list) or not bullet.get("requirement_refs")):
+                                errors.append(f"Usable bullet must cite requirement_refs in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
+                            if bullet.get("selection_status") in {"selected", "alternate"} and not bullet.get("primary_signal"):
+                                errors.append(f"Usable bullet must define primary_signal in bullet_candidates[{bullet_index}] in records[{record_index}]: {path}")
 
 
 def validate_output_files(root: Path, errors: list[str]) -> None:
